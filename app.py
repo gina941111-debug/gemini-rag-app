@@ -334,10 +334,10 @@ if st.session_state.docs_loaded:
 else:
     st.sidebar.info("🤖 使用模型本身知識回答")
 
-if st.sidebar.button("🗑️ 清除教材"):
+if st.sidebar.button("🗑️ 清除上傳資料"):
     st.session_state.doc_vectorstore = None
     st.session_state.docs_loaded = False
-    st.sidebar.success("教材已清除")
+    st.sidebar.success("資料已清除")
 
 
 # ===============================
