@@ -27,7 +27,7 @@ import json
 # ===============================
 st.set_page_config(
     page_title="Gemini ChatGPT Style Bot + RAG",
-    page_icon="🦦"
+    page_icon="🦦",
     layout="centered",
 )
 st.title("💬 Gemini 多模態機器人（RAG）")
