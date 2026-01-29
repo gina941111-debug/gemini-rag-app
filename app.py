@@ -33,39 +33,7 @@ st.title("💬 Gemini 多模態機器人（RAG）")
 
 
 # ===============================
-# 2. Gemini client（STT）
-# ===============================
-def setup_gemini_client():
-    try:
-        return genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-    except Exception as e:
-        st.error(e)
-        return None
-
-
-client = setup_gemini_client()
-
-
-# ===============================
-# 3. LLM / Embeddings
-# ===============================
-def setup_llm(model):
-    return ChatGoogleGenerativeAI(
-        model=model,
-        api_key=st.secrets["GEMINI_API_KEY"],
-        temperature=0.7,
-    )
-
-
-def setup_embeddings():
-    return GoogleGenerativeAIEmbeddings(
-        model="text-embedding-004",
-        google_api_key=st.secrets["GEMINI_API_KEY"],
-    )
-
-
-# ===============================
-# 4. Utils
+# 2. Utils
 # ===============================
 def encode_image(img: Image.Image):
     if img.mode in ("RGBA", "LA", "P"):
@@ -188,7 +156,7 @@ init_db()
 
 
 # ===============================
-# 5. Session state
+# 3. Session state
 # ===============================
 if "messages" not in st.session_state:
     st.session_state.messages = [
@@ -207,19 +175,69 @@ for k, v in {
 
 
 # ===============================
-# 6. Sidebar
+# 4. Gemini client / LLM / Embeddings
+#    （使用者從前端貼 API key）
+# ===============================
+st.sidebar.markdown("## 🔑 API Key 設定")
+api_key_input = st.sidebar.text_input(
+    "貼上你的 Gemini API Key",
+    type="password",
+)
+
+if api_key_input:
+    st.session_state["user_api_key"] = api_key_input
+
+user_api_key = st.session_state.get("user_api_key")
+
+if not user_api_key:
+    st.sidebar.warning("請先貼上 Gemini API Key 才能開始使用")
+
+
+def setup_gemini_client(api_key: str | None):
+    if not api_key:
+        return None
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception as e:
+        st.error(e)
+        return None
+
+
+def setup_llm(model_name: str, api_key: str | None):
+    if not api_key:
+        return None
+    return ChatGoogleGenerativeAI(
+        model=model_name,
+        api_key=api_key,
+        temperature=0.7,
+    )
+
+
+def setup_embeddings(api_key: str | None):
+    if not api_key:
+        return None
+    return GoogleGenerativeAIEmbeddings(
+        model="text-embedding-004",
+        google_api_key=api_key,
+    )
+
+
+client = setup_gemini_client(user_api_key)
+
+
+# ===============================
+# 5. Sidebar（模型 / 檔案 / 模式 / 記憶）
 # ===============================
 st.sidebar.markdown("## 🤖 模型")
 MODEL_OPTIONS = {
     "Gemini 2.5 Flash": "gemini-2.5-flash",
     "Gemini 1.5": "gemini-robotics-er-1.5-preview",
 }
-model = setup_llm(
-    MODEL_OPTIONS[
-        st.sidebar.selectbox("選擇模型", MODEL_OPTIONS.keys())
-    ]
-)
-embeddings = setup_embeddings()
+selected_model_name = st.sidebar.selectbox("選擇模型", MODEL_OPTIONS.keys())
+model_name = MODEL_OPTIONS[selected_model_name]
+
+model = setup_llm(model_name, user_api_key)
+embeddings = setup_embeddings(user_api_key)
 
 st.sidebar.markdown("## 📚 上傳檔案")
 rag_files = st.sidebar.file_uploader(
@@ -236,7 +254,6 @@ mode = st.sidebar.selectbox(
 
 st.sidebar.markdown("## 💾 對話記憶")
 
-# 1) 列出已儲存的記憶
 saved_list = load_all_memory()
 if saved_list:
     options = {f"{r[0]} | {r[1][:19]} | {r[2]}": r[0] for r in saved_list}
@@ -265,7 +282,6 @@ if saved_list:
 else:
     st.sidebar.info("目前沒有已儲存的對話")
 
-# 2) 儲存目前整個對話
 if st.sidebar.button("💾 儲存目前對話", key="save_memory_now"):
     if st.session_state.get("messages"):
         save_memory(st.session_state.messages, mode)
@@ -276,7 +292,7 @@ if st.sidebar.button("💾 儲存目前對話", key="save_memory_now"):
 
 
 # ===============================
-# ⭐ RAG Reset（關鍵）
+# ⭐ RAG Reset
 # ===============================
 if not rag_files:
     st.session_state.doc_vectorstore = None
@@ -325,6 +341,13 @@ if st.sidebar.button("🗑️ 清除教材"):
 
 
 # ===============================
+# 如果沒有 API key 或沒有模型，直接停止
+# ===============================
+if not user_api_key or not model:
+    st.stop()
+
+
+# ===============================
 # 7. Chat history
 # ===============================
 for m in st.session_state.messages:
@@ -365,14 +388,10 @@ if st.session_state.show_image_uploader:
         st.session_state.show_image_uploader = False
 
 
-# 這個 callback 只在按鈕被點擊「下一輪 rerun 前」執行，所以不會撞規則
 def on_send():
-    # 這裡不要直接讀 user_text，改讀 session_state 裡的值
     text = st.session_state.get("multi_enter_input", "").strip()
     if text:
-        # 把這次輸入存到另外一個 key，下面用它當 prompt
         st.session_state["last_submitted_text"] = text
-    # 然後清空輸入框
     st.session_state["multi_enter_input"] = ""
 
 
@@ -384,8 +403,8 @@ user_text = st.text_area(
 
 st.button("送出", on_click=on_send)
 
-# 這輪要用的 prompt：如果 callback 剛剛有寫入，就取出來
 prompt = st.session_state.pop("last_submitted_text", None)
+
 
 # ===============================
 # 9. STT
